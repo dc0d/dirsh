@@ -1,2 +1,2 @@
 # dirsh
-Simple tool to share current directory over http
+This is a simple tool to share current directory over http.
