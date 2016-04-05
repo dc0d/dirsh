@@ -21,7 +21,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "dirsh"
 	app.Usage = "share files in current directory (on http via a specific port)"
-	app.Version = "0.1.1"
+	app.Version = "0.2.1"
 	app.Flags = []cli.Flag{
 		cli.IntFlag{
 			Name:   "port, p",
@@ -29,25 +29,19 @@ func main() {
 			Usage:  "port to serve http on",
 			EnvVar: "DIRSH_PORT",
 		},
-		cli.BoolFlag{
-			Name:   "preview, w",
-			Usage:  "turns preview on",
-			EnvVar: "DIRSH_PREVIEW",
-		},
 	}
 	app.Action = func(c *cli.Context) {
 		workerRegistry.Add(1)
 
 		port := c.Int("port")
-		preview := c.Bool("preview")
-		go serve(port, preview)
+		go serve(port)
 	}
 	app.Run(os.Args)
 
 	workerRegistry.Wait()
 }
 
-func serve(port int, preview bool) {
+func serve(port int) {
 	defer workerRegistry.Done()
 
 	dir, err := os.Getwd()
@@ -62,7 +56,7 @@ func serve(port int, preview bool) {
 	})
 
 	mux.GET("/", func(res http.ResponseWriter, req *http.Request, params map[string]string) {
-		cx.Plumb(nil, reqLogger(), recoverPlumbing(), listFiles(dir, preview)).ServeHTTP(res, req)
+		cx.Plumb(nil, reqLogger(), recoverPlumbing(), listFiles(dir)).ServeHTTP(res, req)
 	})
 
 	mux.GET("/preview/:mediatype/*path", func(res http.ResponseWriter, req *http.Request, params map[string]string) {
@@ -127,7 +121,7 @@ func playMedia(mediaType, src string) cx.MiddlewareFunc {
 	}
 }
 
-func listFiles(searchDir string, preview bool) cx.MiddlewareFunc {
+func listFiles(searchDir string) cx.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
 			data := fileItems(searchDir)
@@ -196,6 +190,8 @@ type FileItem struct {
 }
 
 const (
+	//TODO: theme is aweful! fix it!
+
 	fileListTemplate = `<!doctype html>
 <html lang="en">
 <head>
@@ -203,30 +199,21 @@ const (
   <title>Shared Content</title>
   
   <style>
-body {
-    cursor: default;
-    font-size: 14px;
-    line-height: 21px;
-    font-family: "Segoe UI","Helvetica",Garuda,Arial,sans-serif;
-    padding: 18px 18px 18px 18px;
+body{
+  font-family:'Open Sans', sans-serif;
+  background-color:#8BC34A;
+  width:90%;
+  margin:0 auto;
+  padding:2em 0 6em;
 }
 ul {
     margin-bottom: 14px;
     list-style: none;
 }
-li { margin: 0 0 7px 0; }
-li a { 
-    display: block;
-    height: 30px;
+li { 
     margin: 0 0 7px 0;
-    background: #F7F5F2 url(data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAABsAAAAcCAYAAACQ0cTtAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAgY0hSTQAAeiYAAICEAAD6AAAAgOgAAHUwAADqYAAAOpgAABdwnLpRPAAAAcVJREFUSEvtVtFNxDAM7QiMwAiMwAiMwAhs4PZSic8bgRFuhI5wI3QERjjyYjuJrnaagoSExElRT4njZzvPLxmG/99vVIBofhrHcB6neYnjM46bfBfME4XnH8cBJwIA5zoAqKOaD+u3QSUTdjaGD6LTixU95rGeg4mZHsqybO6PNpV6ClcNrguQpjBylOFKRA9dm8QI9hVgO0OOjg/fA6LT/IqA8LXLWgCbZ6hkaBlVhFm8rIVYCNq2IXp/lKxcJ3DeAyZ2F/hDtTZB0TS/pUWnPLqhFyyxFP5iyTdgykBk2CKFBeadr1spdWIB1cy8B1MGOvtW89zaYKUVarCa6jYYK822jCxBN2eTyBKaVhqX7RMJGvugowYYC63JHpCm0sZaJ9N/i1ScdQrksmWjOAQrzWZ1AE22RQcaoOmvRBJWt1mzlMkNEAXYsy0C4bA709/JLjWrKnwDSHsMtm4bSXY41KiNRuer4DYaX/RVfLR7dshR7QDaIpyEPN3ke0qU99fs8whwDyZydwxInUiG8t4Iq/XWgLozSFzXq2lHW5tnKJepgOZ3yKbX+Omwc0Yt0a3XkKkAQzWSDKVLFPMHb/RezL9l9wWuQAy9JbrovAAAAABJRU5ErkJggg==) 97% center no-repeat;
-    font-size: 18px;
-    color: #333;
-    padding: 5px 0 0 20px;
-    text-decoration: none;
+    background-color:#FFC107; 
 }
-
-li a:hover { background-color: #EFEFEF; }
 
 .orange { border-left: 5px solid #F5876E; }
 
@@ -238,6 +225,17 @@ li a:hover { background-color: #EFEFEF; }
 
 .gold { border-left: 5px solid #D8C86E; }
 
+.preview a {
+	position:relative;
+    transition:0.5s color ease;
+	text-decoration:none;
+	color:#009688;
+	font-size:1.7em;
+}
+
+.preview .right{
+    float:right;
+}
   </style>  
   
 </head>
@@ -246,9 +244,11 @@ li a:hover { background-color: #EFEFEF; }
     <ul>
     {{range .}}
         <!-- Path, Name, Class, Ext, Src, Type  -->
-        <li class="{{.Class}}">
-            <a href='{{.Src}}' download='{{.Name}}'>{{.Name}}</a>
-            <a href='/preview/{{.MediaType}}{{.Src}}' target="_blank">+</a>
+        <li class="{{.Class}}">            
+            <p class="preview">
+                <a href='{{.Src}}' download='{{.Name}}'>{{.Name}}</a> 
+                <a href='/preview/{{.MediaType}}{{.Src}}' target="_blank" class="right">+</a>
+            </p>
         </li>
     {{end}}
     </ul>
