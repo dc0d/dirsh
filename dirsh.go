@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,6 +33,31 @@ func main() {
 	}
 	app.Action = func(c *cli.Context) {
 		workerRegistry.Add(1)
+
+		ifaces, err := net.Interfaces()
+		if err != nil {
+			log.Error(err)
+		} else {
+			log.Infoln(`local IP addresses: (interfaces #`, len(ifaces), `)`)
+			for _, i := range ifaces {
+				addrs, err := i.Addrs()
+				if err != nil {
+					log.Error(err)
+					continue
+				}
+				for _, addr := range addrs {
+					switch v := addr.(type) {
+					case *net.IPAddr:
+						vstr := v.String()
+						if vstr != "0.0.0.0" {
+							log.Infof("IP: %s", vstr)
+						}
+					default:
+						log.Infof("IP: %v", v)
+					}
+				}
+			}
+		}
 
 		port := c.Int("port")
 		go serve(port)
