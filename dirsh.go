@@ -21,7 +21,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "dirsh"
 	app.Usage = "share files in current directory (on http via a specific port)"
-	app.Version = "0.2.1"
+	app.Version = "0.2.3"
 	app.Flags = []cli.Flag{
 		cli.IntFlag{
 			Name:   "port, p",
@@ -198,45 +198,57 @@ const (
   <meta charset="utf-8">
   <title>Shared Content</title>
   
-  <style>
-body{
-  font-family:'Open Sans', sans-serif;
-  background-color:#8BC34A;
-  width:90%;
-  margin:0 auto;
-  padding:2em 0 6em;
-}
-ul {
-    margin-bottom: 14px;
-    list-style: none;
-}
-li { 
-    margin: 0 0 7px 0;
-    background-color:#FFC107; 
-}
-
-.orange { border-left: 5px solid #F5876E; }
-
-.blue{ border-left: 5px solid #61A8DC; }
-
-.green{ border-left: 5px solid #8EBD40; }
-
-.purple { border-left: 5px solid #988CC3; }
-
-.gold { border-left: 5px solid #D8C86E; }
-
-.preview a {
-	position:relative;
-    transition:0.5s color ease;
-	text-decoration:none;
-	color:#009688;
-	font-size:1.7em;
-}
-
-.preview .right{
-    float:right;
-}
-  </style>  
+    <style>
+        body {
+            font-family: 'Open Sans', sans-serif;
+            background-color: #3F51B5;
+            width: 90%;
+            margin: 0 auto;
+            padding: 2em 0 6em;
+        }
+        
+        ul {
+            margin-bottom: 14px;
+            list-style: none;
+        }
+        
+        li {
+            margin: 0 0 7px 0;
+            background-color: #eee;
+        }
+        
+        .orange {
+            border-left: 5px solid #F5876E;
+        }
+        
+        .blue {
+            border-left: 5px solid #61A8DC;
+        }
+        
+        .green {
+            border-left: 5px solid #8EBD40;
+        }
+        
+        .purple {
+            border-left: 5px solid #988CC3;
+        }
+        
+        .gold {
+            border-left: 5px solid #D8C86E;
+        }
+        
+        .preview a {
+            position: relative;
+            transition: 0.5s color ease;
+            text-decoration: none;
+            color: #333;
+            font-size: 1.7em;
+        }
+        
+        .preview .right {
+            float: right;
+        }
+    </style>  
   
 </head>
 
