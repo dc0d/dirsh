@@ -3,14 +3,13 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"math/rand"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
-	"sync"
-	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/codegangsta/cli"
@@ -36,18 +35,16 @@ func main() {
 			EnvVar: "DIRSH_PREVIEW",
 		},
 	}
-	app.Action = run
+	app.Action = func(c *cli.Context) {
+		workerRegistry.Add(1)
+
+		port := c.Int("port")
+		preview := c.Bool("preview")
+		go serve(port, preview)
+	}
 	app.Run(os.Args)
 
 	workerRegistry.Wait()
-}
-
-func run(c *cli.Context) {
-	workerRegistry.Add(1)
-
-	port := c.Int("port")
-	preview := c.Bool("preview")
-	go serve(port, preview)
 }
 
 func serve(port int, preview bool) {
@@ -61,11 +58,31 @@ func serve(port int, preview bool) {
 	mux := httptreemux.New()
 
 	mux.GET("/dir/*path", func(res http.ResponseWriter, req *http.Request, params map[string]string) {
-		cx.Plumb(nil, reqLogger(), serveContent(`/dir`, dir)).ServeHTTP(res, req)
+		cx.Plumb(nil, reqLogger(), recoverPlumbing(), serveContent(`/dir`, dir)).ServeHTTP(res, req)
 	})
 
 	mux.GET("/", func(res http.ResponseWriter, req *http.Request, params map[string]string) {
-		cx.Plumb(nil, reqLogger(), listFiles(dir, preview)).ServeHTTP(res, req)
+		cx.Plumb(nil, reqLogger(), recoverPlumbing(), listFiles(dir, preview)).ServeHTTP(res, req)
+	})
+
+	mux.GET("/preview/:mediatype/*path", func(res http.ResponseWriter, req *http.Request, params map[string]string) {
+		mediaType := params["mediatype"]
+
+		src := req.URL.String()
+		r2 := prefixRegexp.FindAllStringSubmatch(src, -1)[0]
+		n1 := prefixRegexp.SubexpNames()
+
+		md := map[string]string{}
+		for i, n := range r2 {
+			md[n1[i]] = n
+		}
+
+		urlRest, ok := md["url_rest"]
+		if ok {
+			src = urlRest
+		}
+
+		cx.Plumb(nil, reqLogger(), recoverPlumbing(), playMedia(mediaType, src)).ServeHTTP(res, req)
 	})
 
 	log.Info(`started to serve dir `, dir, ` on url http://ocalhost:`, port)
@@ -74,23 +91,112 @@ func serve(port int, preview bool) {
 	http.ListenAndServe(strPort, mux)
 }
 
-func listFiles(searchDir string, preview bool) cx.MiddlewareFunc {
+var (
+	prefixRegexp = regexp.MustCompile(`/[^/]+/[^/]+(?P<url_rest>.*)`)
+)
+
+func playMedia(mediaType, src string) cx.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
-			fileList := []string{}
-			err := filepath.Walk(searchDir, func(path string, f os.FileInfo, err error) error {
-				if f.IsDir() {
-					return nil
-				}
+			if mediaType == "none" {
+				mediaType = ``
+			}
 
-				fileList = append(fileList, path)
-				return nil
-			})
+			data := struct {
+				Src, MediaType string
+			}{
+				Src:       src,
+				MediaType: mediaType,
+			}
+
+			pt := template.New("PlayerTemplate")
+			t, err := pt.Parse(playerTemplate)
+			if err != nil {
+				log.Error(err)
+			}
+			err = t.Execute(res, data)
 			if err != nil {
 				log.Error(err)
 			}
 
-			res.Write([]byte(`<!doctype html>
+			// this is a final action
+			// next.ServeHTTP(res, req)
+		}
+
+		return fh
+	}
+}
+
+func listFiles(searchDir string, preview bool) cx.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
+			data := fileItems(searchDir)
+			pt := template.New("FileListTemplate")
+			t, err := pt.Parse(fileListTemplate)
+			if err != nil {
+				log.Error(err)
+			}
+			err = t.Execute(res, data)
+			if err != nil {
+				log.Error(err)
+			}
+
+			// this is a final action
+			// next.ServeHTTP(res, req)
+		}
+
+		return fh
+	}
+}
+
+func fileItems(searchDir string) []*FileItem {
+	fileList := listFilesInside(searchDir)
+	classes := []string{"orange", "blue", "green", "purple", "gold"}
+
+	var data []*FileItem
+	for _, f := range fileList {
+		colorIndex := rand.Intn(5)
+		liClass := classes[colorIndex]
+
+		s, _ := filepath.Rel(searchDir, f)
+		_, fn := filepath.Split(f)
+		ext := strings.ToLower(filepath.Ext(fn))
+		src := fmt.Sprintf("/dir/%s", s)
+
+		item := &FileItem{s, fn, liClass, ext, src, decideType(ext)}
+		data = append(data, item)
+	}
+
+	return data
+}
+
+func decideType(ext string) (res string) {
+	switch ext {
+	case ".3gpp":
+		res = "video/3gpp"
+	case ".ogv":
+		res = "video/ogg"
+	case ".webm":
+		res = "video/webm"
+	case ".mp4":
+		res = "video/mp4"
+	// case ".mkv":
+	default:
+		res = `none`
+	}
+
+	res = strings.Replace(res, "/", "%2f", -1)
+
+	return res
+}
+
+//FileItem +
+type FileItem struct {
+	Path, Name, Class, Ext, Src, MediaType string
+}
+
+const (
+	fileListTemplate = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -136,131 +242,33 @@ li a:hover { background-color: #EFEFEF; }
   
 </head>
 
-<body>`))
-
-			res.Write([]byte("<ul>"))
-
-			classes := []string{"orange", "blue", "green", "purple", "gold"}
-			liTemplate := `
-				<li class="%s">
-				    <a href='%s' download='%s'>%s</a>
-				    <video width="100%%" height="100%%" controls>
-				        <source src="%s" %s>
-				        Your browser does not support the video tag.
-				    </video>
-				</li>`
-
-			for _, f := range fileList {
-				colorIndex := rand.Intn(5)
-				liClass := classes[colorIndex]
-
-				s, _ := filepath.Rel(searchDir, f)
-				_, fn := filepath.Split(f)
-				ext := strings.ToLower(filepath.Ext(fn))
-				src := fmt.Sprintf("/dir/%s", s)
-
-				if !preview {
-					res.Write([]byte(fmt.Sprintf(`<li class="%s">
-    <a href='/dir/%s' download='%s'>%s</a> 
-</li>`, liClass, s, fn, fn)))
-				} else {
-
-					switch ext {
-					case ".3gpp":
-						res.Write([]byte(fmt.Sprintf(liTemplate, liClass, src, fn, fn, src, `type="video/3gpp"`)))
-					case ".ogv":
-						res.Write([]byte(fmt.Sprintf(liTemplate, liClass, src, fn, fn, src, `type="video/ogg"`)))
-					case ".webm":
-						res.Write([]byte(fmt.Sprintf(liTemplate, liClass, src, fn, fn, src, `type="video/webm"`)))
-					case ".mp4":
-						res.Write([]byte(fmt.Sprintf(liTemplate, liClass, src, fn, fn, src, `type="video/mp4"`)))
-					case ".mkv":
-						res.Write([]byte(fmt.Sprintf(liTemplate, liClass, src, fn, fn, src, ``)))
-					default:
-						res.Write([]byte(fmt.Sprintf(`<li class="%s">
-    <a href='/dir/%s' download='%s'>%s</a> 
-</li>`, liClass, s, fn, fn)))
-					}
-				}
-			}
-			res.Write([]byte("</ul>"))
-
-			res.Write([]byte(`</body>
+<body>
+    <ul>
+    {{range .}}
+        <!-- Path, Name, Class, Ext, Src, Type  -->
+        <li class="{{.Class}}">
+            <a href='{{.Src}}' download='{{.Name}}'>{{.Name}}</a>
+            <a href='/preview/{{.MediaType}}{{.Src}}' target="_blank">+</a>
+        </li>
+    {{end}}
+    </ul>
+</body>
              
-</html>`))
-		}
+</html>`
 
-		return fh
-	}
-}
+	playerTemplate = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Shared Content</title>
+</head>
 
-func serveContent(prefix, dir string) cx.ContextProvider {
-	return func(ctx cx.Context) cx.MiddlewareFunc {
-		return func(next http.Handler) http.Handler {
-			var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
-				nmd := http.Dir(dir)
-				fsrv := http.FileServer(nmd)
-				http.StripPrefix(prefix, fsrv).ServeHTTP(res, req)
-
-				next.ServeHTTP(res, req)
-			}
-
-			return fh
-		}
-	}
-}
-
-func reqLogger() cx.MiddlewareFunc {
-	return func(next http.Handler) http.Handler {
-		var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
-			remoteAddr := req.RemoteAddr
-			if ip := req.Header.Get(XRealIP); ip != "" {
-				remoteAddr = ip
-			} else if ip = req.Header.Get(XForwardedFor); ip != "" {
-				remoteAddr = ip
-			} else {
-				remoteAddr, _, _ = net.SplitHostPort(remoteAddr)
-			}
-
-			hasError := false
-
-			start := time.Now()
-
-			next.ServeHTTP(res, req)
-
-			stop := time.Now()
-			method := req.Method
-			path := req.URL.Path
-			if path == "" {
-				path = "/"
-			}
-
-			logMsg := fmt.Sprintf("%v %v %v %v", remoteAddr, method, path, stop.Sub(start))
-			if hasError {
-				log.Warn(logMsg)
-			} else {
-				log.Info(logMsg)
-			}
-
-		}
-		return fh
-	}
-}
-
-func init() {
-	log.SetFormatter(&log.TextFormatter{
-		ForceColors: true,
-	})
-}
-
-var (
-	workerRegistry = new(sync.WaitGroup)
-)
-
-const (
-	//XRealIP +
-	XRealIP = "X-Real-IP"
-
-	//XForwardedFor +
-	XForwardedFor = "X-Forwarded-For"
+<body>
+    <video width="100%%" height="100%%" controls>
+        <source src="{{.Src}}" type="{{.MediaType}}">
+        Your browser does not support the video tag.
+    </video>
+</body>
+             
+</html>`
 )
