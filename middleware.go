@@ -9,11 +9,11 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/dc0d/cx"
+	"github.com/dc0d/plumber"
 )
 
-func serveContent(prefix, dir string) cx.ContextProvider {
-	return func(ctx cx.Context) cx.MiddlewareFunc {
+func serveContent(prefix, dir string) plumber.ContextProvider {
+	return func(ctx interface{}) plumber.MiddlewareFunc {
 		return func(next http.Handler) http.Handler {
 			var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
 				nmd := http.Dir(dir)
@@ -28,8 +28,8 @@ func serveContent(prefix, dir string) cx.ContextProvider {
 	}
 }
 
-func recoverPlumbing() cx.ContextProvider {
-	return func(ctx cx.Context) cx.MiddlewareFunc {
+func recoverPlumbing() plumber.ContextProvider {
+	return func(ctx interface{}) plumber.MiddlewareFunc {
 		return func(next http.Handler) http.Handler {
 			var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
 				defer func() {
@@ -50,7 +50,7 @@ func recoverPlumbing() cx.ContextProvider {
 	}
 }
 
-func reqLogger() cx.MiddlewareFunc {
+func reqLogger() plumber.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
 			remoteAddr := req.RemoteAddr

@@ -14,7 +14,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/codegangsta/cli"
-	"github.com/dc0d/cx"
+	"github.com/dc0d/plumber"
 	"github.com/dimfeld/httptreemux"
 )
 
@@ -78,11 +78,11 @@ func serve(port int) {
 	mux := httptreemux.New()
 
 	mux.GET("/dir/*path", func(res http.ResponseWriter, req *http.Request, params map[string]string) {
-		cx.Plumb(nil, reqLogger(), recoverPlumbing(), serveContent(`/dir`, dir)).ServeHTTP(res, req)
+		plumber.Plumb(nil, reqLogger(), recoverPlumbing(), serveContent(`/dir`, dir)).ServeHTTP(res, req)
 	})
 
 	mux.GET("/", func(res http.ResponseWriter, req *http.Request, params map[string]string) {
-		cx.Plumb(nil, reqLogger(), recoverPlumbing(), listFiles(dir)).ServeHTTP(res, req)
+		plumber.Plumb(nil, reqLogger(), recoverPlumbing(), listFiles(dir)).ServeHTTP(res, req)
 	})
 
 	mux.GET("/preview/:mediatype/*path", func(res http.ResponseWriter, req *http.Request, params map[string]string) {
@@ -102,7 +102,7 @@ func serve(port int) {
 			src = urlRest
 		}
 
-		cx.Plumb(nil, reqLogger(), recoverPlumbing(), playMedia(mediaType, src)).ServeHTTP(res, req)
+		plumber.Plumb(nil, reqLogger(), recoverPlumbing(), playMedia(mediaType, src)).ServeHTTP(res, req)
 	})
 
 	log.Info(`started to serve dir `, dir, ` on url http://ocalhost:`, port)
@@ -115,7 +115,7 @@ var (
 	prefixRegexp = regexp.MustCompile(`/[^/]+/[^/]+(?P<url_rest>.*)`)
 )
 
-func playMedia(mediaType, src string) cx.MiddlewareFunc {
+func playMedia(mediaType, src string) plumber.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
 			if mediaType == "none" {
@@ -147,7 +147,7 @@ func playMedia(mediaType, src string) cx.MiddlewareFunc {
 	}
 }
 
-func listFiles(searchDir string) cx.MiddlewareFunc {
+func listFiles(searchDir string) plumber.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		var fh http.HandlerFunc = func(res http.ResponseWriter, req *http.Request) {
 			data := fileItems(searchDir)
